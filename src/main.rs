@@ -1,16 +1,17 @@
 use chrono::{Duration, Utc};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use datadog_api_client::datadog;
 use datadog_api_client::datadog::APIKey;
 use datadog_api_client::datadogV1::api_logs::LogsAPI;
 use datadog_api_client::datadogV1::model::LogsListRequest;
 use datadog_api_client::datadogV1::model::LogsListRequestTime;
 use datadog_api_client::datadogV1::model::LogsSort;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::io::{self, Write};
 use std::path::PathBuf;
 use thiserror::Error;
 
-#[derive(Deserialize, Debug, Default)]
+#[derive(Deserialize, Serialize, Debug, Default)]
 struct Config {
     api_key: Option<String>,
     app_key: Option<String>,
@@ -58,6 +59,9 @@ impl Config {
 #[command(name = "ddlogs")]
 #[command(about = "Tail logs from Datadog", long_about = None)]
 struct Args {
+    #[command(subcommand)]
+    command: Option<Commands>,
+
     /// Follow mode - continuously poll for new logs
     #[arg(short, long)]
     follow: bool,
@@ -87,6 +91,12 @@ struct Args {
     interval: u64,
 }
 
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Configure ddlogs with API credentials and site
+    Configure,
+}
+
 #[derive(Error, Debug)]
 enum DdLogsError {
     #[error("Datadog API error: {0}")]
@@ -97,6 +107,12 @@ enum DdLogsError {
 
     #[error("Missing API credentials. Set DD_API_KEY and DD_APP_KEY environment variables")]
     MissingCredentials,
+
+    #[error("IO error: {0}")]
+    IoError(#[from] io::Error),
+
+    #[error("TOML serialization error: {0}")]
+    TomlError(#[from] toml::ser::Error),
 }
 
 fn build_query(args: &Args) -> String {
@@ -230,10 +246,10 @@ async fn follow_logs(args: &Args, config: &Config) -> Result<(), DdLogsError> {
     let mut last_timestamp = now;
     if let Some(ref logs) = initial_response.logs {
         for log in logs {
-            if let Some(content) = &log.content {
-                if let Some(timestamp) = content.timestamp {
-                    last_timestamp = timestamp;
-                }
+            if let Some(content) = &log.content
+                && let Some(timestamp) = content.timestamp
+            {
+                last_timestamp = timestamp;
             }
             let json = serde_json::to_string(&log)?;
             println!("{}", json);
@@ -272,10 +288,10 @@ async fn follow_logs(args: &Args, config: &Config) -> Result<(), DdLogsError> {
             } else {
                 for log in logs {
                     // Update last_timestamp to the latest log timestamp
-                    if let Some(content) = &log.content {
-                        if let Some(timestamp) = content.timestamp {
-                            last_timestamp = timestamp;
-                        }
+                    if let Some(content) = &log.content
+                        && let Some(timestamp) = content.timestamp
+                    {
+                        last_timestamp = timestamp;
                     }
 
                     let json = serde_json::to_string(&log)?;
@@ -292,9 +308,68 @@ async fn follow_logs(args: &Args, config: &Config) -> Result<(), DdLogsError> {
     }
 }
 
+fn configure() -> Result<(), DdLogsError> {
+    println!("Configure ddlogs");
+    println!();
+
+    // Prompt for API key
+    print!("Datadog API Key: ");
+    io::stdout().flush()?;
+    let mut api_key = String::new();
+    io::stdin().read_line(&mut api_key)?;
+    let api_key = api_key.trim().to_string();
+
+    // Prompt for App key
+    print!("Datadog Application Key: ");
+    io::stdout().flush()?;
+    let mut app_key = String::new();
+    io::stdin().read_line(&mut app_key)?;
+    let app_key = app_key.trim().to_string();
+
+    // Prompt for site with default
+    print!("Datadog Site [datadoghq.com]: ");
+    io::stdout().flush()?;
+    let mut site = String::new();
+    io::stdin().read_line(&mut site)?;
+    let site = site.trim();
+    let site = if site.is_empty() {
+        "datadoghq.com".to_string()
+    } else {
+        site.to_string()
+    };
+
+    // Create config
+    let config = Config {
+        api_key: Some(api_key),
+        app_key: Some(app_key),
+        site: Some(site),
+    };
+
+    // Create config directory if it doesn't exist
+    let config_path = Config::config_path();
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    // Write config file
+    let toml_string = toml::to_string_pretty(&config)?;
+    std::fs::write(&config_path, toml_string)?;
+
+    println!();
+    println!("Configuration saved to {}", config_path.display());
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), DdLogsError> {
     let args = Args::parse();
+
+    // Handle configure subcommand
+    if let Some(Commands::Configure) = args.command {
+        return configure();
+    }
+
     let config = Config::load();
 
     // Verify credentials exist
