@@ -39,7 +39,7 @@ case "$OS" in
 esac
 
 # Get latest version from GitHub
-REPO="sisypha/ddlogs"
+REPO="faiscadev/ddlogs"
 LATEST_URL="https://api.github.com/repos/$REPO/releases/latest"
 
 echo "Fetching latest release..."

@@ -22,12 +22,12 @@ cargo install ddlogs
 ### Using install script
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sisypha/ddlogs/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/faiscadev/ddlogs/main/install.sh | sh
 ```
 
 ### Download pre-built binaries
 
-Download the latest release from [GitHub Releases](https://github.com/sisypha/ddlogs/releases).
+Download the latest release from [GitHub Releases](https://github.com/faiscadev/ddlogs/releases).
 
 ## Configuration
 
